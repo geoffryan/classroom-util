@@ -24,6 +24,8 @@ logfile="class.log"
 collect_mode="collect"
 grade_mode="grade"
 return_mode="return"
+grade_branch="grading-branch"
+host="git@github.com"
 
 
 if [ "$#" -lt 3 ]
@@ -63,11 +65,11 @@ function collect {
     then
         echo -n " updating"
         cd "$repo"
-        git pull git@github.com:"$org"/"$repo" >> "$log" 2>&1
+        git pull "$host":"$org"/"$repo" >> "$log" 2>&1
         cd "$workdir"
     else
         echo -n " cloning"
-        git clone git@github.com:"$org"/"$repo" >> "$log" 2>&1
+        git clone "$host":"$org"/"$repo" >> "$log" 2>&1
     fi
     echo ""
 }
@@ -94,14 +96,33 @@ function grade {
     fi
 
     git tag -a Graded -m "This version is graded." "$commit" >> "$log" 2>&1
-    git checkout -b grading-branch "$commit" >> "$log" 2>&1
+    git checkout -b $grade_branch "$commit" >> "$log" 2>&1
 
     echo ""
     cd "$workdir"
 }
 
 function returnFunc {
-    echo "Not implemented."
+
+    workdir=$(pwd)
+    log="$workdir/$logfile"
+    repo="$prefix-$1"
+
+    cd "$repo"
+
+    echo -n "$repo checkout"
+    git checkout master
+    git merge "$grade_branch"
+    if [ $? -eq 0 ]
+    then
+        echo -n " push"
+        git push origin master
+    else
+        echo -n " MERGE CONFLICT"
+    fi
+
+    echo ""
+    cd "$workdir"
 }
 
 echo "mode: $mode"
