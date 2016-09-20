@@ -8,17 +8,20 @@
 # -----------------------------------------------------------------------------
 
 function print_usage {
-    echo "usage: classroom mode org_name homework_name [due_date]"
+    echo "usage: classroom mode class_data homework_name [due_date]"
     echo "      'mode' can be one of \"collect\", \"grade\", or \"return\"."
     echo "          \"collect\": clones/pulls all matching repos."
     echo "          \"grade\": Requires due_date. Branches off most recent"
     echo "                  commit before due_date"
     echo "          \"return\": Merges graded into master, pushes to origin."
+    echo "      'class_data' is a file whose first line is the classroom"
+    echo "              organization.  Subsequent lines are student usernames."
+    echo "      'homework_name' name of the assignment. Prefix to repo names."
+    echo "      'due_date' Date from which to start grading branch"
 }
 
 ## Parse arguments ##
 
-students="students.txt"
 logfile="class.log"
 
 collect_mode="collect"
@@ -27,7 +30,7 @@ return_mode="return"
 grade_branch="grading-branch"
 host="git@github.com"
 
-
+# Check basic arguments
 if [ "$#" -lt 3 ]
 then
     print_usage
@@ -35,13 +38,15 @@ then
 fi
 
 mode=$1
-org=$2
+classdata=$2
 prefix=$3
 
+# Check due date given if in 'grade' mode.
 if [ "$mode" = "$grade_mode" ]
 then
     if [ "$#" -lt 4 ]
     then
+        echo "ERROR: \"grade\" mode requires due date"
         print_usage
         exit 1
     else
@@ -49,17 +54,28 @@ then
     fi
 fi
 
+# Check class data file valid.
+if [ ! -r "$classdata" ]
+then
+    echo "ERROR: $classdata is not a readable file"
+    print_usage
+    exit 1
+fi
 
-# Primary function. Updates or clones a given repo,
-# finds last commit before due date, tags it, and starts
-# a new "grading branch" off it.
+#Get organization name.
+read -r org < $classdata
 
+## Work functions.  Meat and potatoes.
+
+# Pulls or clones (as appropriate) given repo.
 function collect {
 
     workdir=$(pwd)
     log="$workdir/$logfile"
     repo="$prefix-$1"
+    
     echo -n "$repo"
+    echo "collect $repo" >> "$log"
 
     if [ -d $repo ]
     then
@@ -70,16 +86,32 @@ function collect {
     else
         echo -n " cloning"
         git clone "$host":"$org"/"$repo" >> "$log" 2>&1
+        if [ $? -ne 0 ]
+        then
+            echo " ERROR"
+            return 1
+        fi
     fi
     echo ""
+
+    return 0
 }
 
+# Finds first commit before due date, tags it, and starts a grading branch.
 function grade {
 
     workdir=$(pwd)
     log="$workdir/$logfile"
     repo="$prefix-$1"
+    
     echo -n "$repo"
+    echo "grade $repo" >> "$log"
+
+    if [ ! -d "$repo" ]
+    then
+        echo " DOES NOT EXIST"
+        return 1
+    fi
 
     cd "$repo"
 
@@ -92,6 +124,7 @@ function grade {
     if [ -z "$commit" ]
     then
         echo "  LATE: no commits before date $duedate"
+        cd "$workdir"
         return 1
     fi
 
@@ -100,40 +133,59 @@ function grade {
 
     echo ""
     cd "$workdir"
+
+    return 0
 }
 
+# Merge grading branch into master, push to github if successful.
 function returnFunc {
 
     workdir=$(pwd)
     log="$workdir/$logfile"
     repo="$prefix-$1"
 
+    echo -n "$repo"
+    echo "return $repo" >> "$log"
+
+    if [ ! -d "$repo" ]
+    then
+        echo " DOES NOT EXIST"
+        return 1
+    fi
+
     cd "$repo"
 
-    echo -n "$repo checkout"
-    git checkout master
-    git merge "$grade_branch"
+    echo -n " checkout"
+    git checkout master >> "$log" 2>&1
+    git merge "$grade_branch" >> "$log" 2>&1
     if [ $? -eq 0 ]
     then
         echo -n " push"
-        git push origin master
+        git push origin master >> "$log" 2>&1
     else
-        echo -n " MERGE CONFLICT"
+        echo " MERGE CONFLICT"
+        cd "$workdir"
+        return 1
     fi
 
     echo ""
     cd "$workdir"
+
+    return 0
 }
 
+# Print running parameters
 echo "mode: $mode"
 echo "org: $org"
 echo "hw prefix: $prefix"
-if [ "$mode" = "$collect_mode" ]
+if [ "$mode" = "$grade_mode" ]
 then
     echo "duedate: $duedate"
 fi
 
-while IFS='' read -r line || [[ -n "$line" ]];
+# Loop through all students (lines in classdata after the first)
+# and run mode function on each.
+sed 1d $classdata | while IFS='' read -r line || [[ -n "$line" ]];
 do
     if [ "$mode" = "$collect_mode" ]
     then
@@ -145,6 +197,6 @@ do
     then
         returnFunc $line
     fi
+done
 
-done < $students
-
+exit 0
