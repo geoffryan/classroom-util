@@ -157,6 +157,20 @@ function returnFunc {
 
     echo -n " checkout"
     git checkout master >> "$log" 2>&1
+    if [ ! $? -eq 0 ]
+    then
+        echo " CANNOT CHECKOUT MASTER"
+        cd "$workdir"
+        return 1
+    fi
+    echo -n " pull"
+    git pull origin master >> "$log" 2>&1
+    if [ ! $? -eq 0 ]
+    then
+        echo " CANNOT PULL"
+        cd "$workdir"
+        return 1
+    fi
     git merge "$grade_branch" >> "$log" 2>&1
     if [ $? -eq 0 ]
     then
